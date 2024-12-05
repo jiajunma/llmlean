@@ -10,6 +10,7 @@ inductive APIKind : Type
   | TogetherAI
   | OpenAI
   | DeepSeek
+  | Claude
   deriving Inhabited, Repr
 
 
@@ -73,8 +74,12 @@ structure OpenAIMessage where
   content : String
 deriving FromJson, ToJson
 
-
 structure DeepSeekMessage where
+  role : String
+  content : String
+deriving FromJson, ToJson
+
+structure ClaudeMessage where
   role : String
   content : String
 deriving FromJson, ToJson
@@ -120,14 +125,29 @@ structure OpenAITacticGenerationRequest where
   «stop» : List String := ["[/TAC]"]
 deriving ToJson
 
+structure ClaudeTacticGenerationRequest where
+  model : String
+  messages : List ClaudeMessage
+  n : Nat := 1
+  temperature : Float := 0.7
+  max_tokens : Nat := 100
+  stream : Bool := false
+  «stop» : List String := ["[/TAC]"]
+deriving ToJson
+
+
 structure OpenAIChoice where
   message : OpenAIMessage
 deriving FromJson
 
-
 structure DeepSeekChoice where
   message : OpenAIMessage
 deriving FromJson
+
+structure ClaudeChoice where
+  message : OpenAIMessage
+deriving FromJson
+
 
 structure OpenAIResponse where
   id : String
@@ -139,12 +159,18 @@ structure DeepSeekResponse where
   choices : List DeepSeekChoice
 deriving FromJson
 
+structure ClaudeResponse where
+  id : String
+  choices : List ClaudeChoice
+deriving FromJson
+
 
 def getPromptKind (stringArg: String) : PromptKind :=
   match stringArg with
   | "fewshot" => PromptKind.FewShot
   | "detailed" => PromptKind.Detailed
   | _ => PromptKind.Instruction
+
 
 def getOllamaAPI : IO API := do
   let url        := (← IO.getEnv "LLMLEAN_ENDPOINT").getD "http://localhost:11434/api/generate"
@@ -174,7 +200,6 @@ def getTogetherAPI : IO API := do
   }
   return api
 
-
 def getOpenAIAPI : IO API := do
   let url        := (← IO.getEnv "LLMLEAN_ENDPOINT").getD "https://api.openai.com/v1/chat/completions"
   let model      := (← IO.getEnv "LLMLEAN_MODEL").getD "gpt-4o"
@@ -188,7 +213,6 @@ def getOpenAIAPI : IO API := do
     key := apiKey
   }
   return api
-
 
 def getDeepSeekAPI : IO API := do
   let url        := (← IO.getEnv "LLMLEAN_ENDPOINT").getD "https://api.deepseek.com/v1/chat/completions"
@@ -204,12 +228,28 @@ def getDeepSeekAPI : IO API := do
   }
   return api
 
+def getClaudeAPI : IO API := do
+  let url        := (← IO.getEnv "LLMLEAN_ENDPOINT").getD "https://api.anthropic.com/v1/messages"
+  let model      := (← IO.getEnv "LLMLEAN_MODEL").getD "claude-3-sonnet-20240229"
+  let promptKind := (← IO.getEnv "LLMLEAN_PROMPT").getD "detailed"
+  let apiKey     := (← IO.getEnv "LLMLEAN_API_KEY").getD ""
+  let api : API := {
+    model := model,
+    baseUrl := url,
+    kind := APIKind.OpenAI,
+    promptKind := getPromptKind promptKind,
+    key := apiKey
+  }
+  return api
+
+
 def getAPI : IO API := do
   let apiKind  := (← IO.getEnv "LLMLEAN_API").getD "openai"
   match apiKind with
   | "ollama" => getOllamaAPI
   | "together" => getTogetherAPI
   | "deepseek" => getDeepSeekAPI
+  | "claude" => getClaudeAPI
   | _ => getOpenAIAPI
 
 def post {α β : Type} [ToJson α] [FromJson β] (req : α) (url : String) (apiKey : String): IO β := do
@@ -428,7 +468,8 @@ def parseTacticResponseOpenAI (res: OpenAIResponse) (pfx : String) : Array Strin
 def parseTacticResponseDeepSeek (res: DeepSeekResponse) (pfx : String) : Array String :=
   (res.choices.map fun x => pfx ++ (splitTac x.message.content)).toArray
 
-
+def parseTacticResponseClaude (res: ClaudeResponse) (pfx : String) : Array String :=
+  (res.choices.map fun x => pfx ++ (splitTac x.message.content)).toArray
 
 
 def tacticGenerationOllama (pfx : String) (prompts : List String)
@@ -493,6 +534,27 @@ def tacticGenerationDeepSeek (pfx : String) (prompts : List String)
   let finalResults := (results.toArray.filter filterGeneration).map fun x => (x, 1.0)
   return finalResults
 
+def tacticGenerationClaude (pfx : String) (prompts : List String)
+(api : API) (options : GenerationOptions) : IO $ Array (String × Float) := do
+  let mut results : HashSet String := HashSet.empty
+  for prompt in prompts do
+    let req : OpenAITacticGenerationRequest := {
+      model := api.model,
+      messages := [
+        {
+          role := "user",
+          content := prompt
+        }
+      ],
+      n := options.numSamples,
+      temperature := options.temperature
+    }
+    let res : ClaudeResponse ← post req api.baseUrl api.key
+    for result in (parseTacticResponseClaude res pfx) do
+      results := results.insert result
+
+  let finalResults := (results.toArray.filter filterGeneration).map fun x => (x, 1.0)
+  return finalResults
 
 def splitProof (text : String) : String :=
   let text := ((text.splitOn "[PROOF]").tailD [text]).headD text
@@ -550,11 +612,13 @@ def getGenerationOptions (api : API):  IO GenerationOptions := do
   let defaultSamples := match api.kind with
   | APIKind.Ollama => 5
   | APIKind.DeepSeek=> 1
+  | APIKind.Claude => 1
   | _ => 32
 
   let defaultSamplesStr := match api.kind with
   | APIKind.Ollama => "5"
   | APIKind.DeepSeek=> "1"
+  | APIKind.Claude => "1"
   | _ => "32"
 
   let numSamples := match ((← IO.getEnv "LLMLEAN_NUMSAMPLES").getD defaultSamplesStr).toInt? with
@@ -587,6 +651,8 @@ def API.tacticGeneration
     tacticGenerationOpenAI «prefix» prompts api options
   | APIKind.DeepSeek=>
     tacticGenerationDeepSeek «prefix» prompts api options
+  | APIKind.Claude=>
+    tacticGenerationClaude «prefix» prompts api options
 
 def API.proofCompletion
   (api : API) (tacticState : String) (context : String) : IO $ Array (String × Float) := do
@@ -600,6 +666,8 @@ def API.proofCompletion
   | APIKind.OpenAI =>
     qedOpenAI prompts api options
   | APIKind.DeepSeek=>
+    qedOpenAI prompts api options
+  | APIKind.Claude=>
     qedOpenAI prompts api options
 
 end LLMlean
