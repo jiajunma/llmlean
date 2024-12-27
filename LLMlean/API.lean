@@ -216,13 +216,13 @@ def getOpenAIAPI : IO API := do
 
 def getDeepSeekAPI : IO API := do
   let url        := (← IO.getEnv "LLMLEAN_ENDPOINT").getD "https://api.deepseek.com/v1/chat/completions"
-  let model      := (← IO.getEnv "LLMLEAN_MODEL").getD "gpt-4o"
+  let model      := (← IO.getEnv "LLMLEAN_MODEL").getD "deepseek-chat"
   let promptKind := (← IO.getEnv "LLMLEAN_PROMPT").getD "detailed"
   let apiKey     := (← IO.getEnv "LLMLEAN_API_KEY").getD ""
   let api : API := {
     model := model,
     baseUrl := url,
-    kind := APIKind.OpenAI,
+    kind := APIKind.DeepSeek,
     promptKind := getPromptKind promptKind,
     key := apiKey
   }
@@ -230,13 +230,13 @@ def getDeepSeekAPI : IO API := do
 
 def getClaudeAPI : IO API := do
   let url        := (← IO.getEnv "LLMLEAN_ENDPOINT").getD "https://api.anthropic.com/v1/messages"
-  let model      := (← IO.getEnv "LLMLEAN_MODEL").getD "claude-3-sonnet-20240229"
+  let model      := (← IO.getEnv "LLMLEAN_MODEL").getD "claude-3-5-sonnet-20241022"
   let promptKind := (← IO.getEnv "LLMLEAN_PROMPT").getD "detailed"
   let apiKey     := (← IO.getEnv "LLMLEAN_API_KEY").getD ""
   let api : API := {
     model := model,
     baseUrl := url,
-    kind := APIKind.OpenAI,
+    kind := APIKind.Claude,
     promptKind := getPromptKind promptKind,
     key := apiKey
   }
@@ -249,7 +249,7 @@ def getAPI : IO API := do
   | "ollama" => getOllamaAPI
   | "together" => getTogetherAPI
   | "deepseek" => getDeepSeekAPI
-  | "claude" => getClaudeAPI
+  | "claude" | "anthropic" => getClaudeAPI
   | _ => getOpenAIAPI
 
 def post {α β : Type} [ToJson α] [FromJson β] (req : α) (url : String) (apiKey : String): IO β := do
@@ -262,11 +262,11 @@ def post {α β : Type} [ToJson α] [FromJson β] (req : α) (url : String) (api
       "-H", "Authorization: Bearer " ++ apiKey,
       "-d", (toJson req).pretty UInt64.size]
   }
-  --dbg_trace f!"POST url: {url}"
-  --dbg_trace f!"APIKey: {apiKey}"
+  dbg_trace f!"POST url: {url}"
+  dbg_trace f!"APIKey: {apiKey}"
   dbg_trace f!"req: {(toJson req).pretty}"
   --dbg_trace f!"out.exitCode: {out.exitCode}"
-  dbg_trace f!"output {out.stdout}"
+  -- dbg_trace f!"output {out.stdout}"
   if out.exitCode != 0 then
      throw $ IO.userError s!"Request failed. If running locally, ensure that ollama is running, and that the ollama server is up at `{url}`. If the ollama server is up at a different url, set LLMLEAN_URL to the proper url. If using a cloud API, ensure that LLMLEAN_API_KEY is set."
   let some json := Json.parse out.stdout |>.toOption
@@ -275,43 +275,69 @@ def post {α β : Type} [ToJson α] [FromJson β] (req : α) (url : String) (api
     | throw $ IO.userError out.stdout
   return res
 
-def DeepSeekLEAN4prompt := "
----
+def postClaude {α β : Type} [ToJson α] [FromJson β] (req : α) (url : String) (apiKey : String): IO β := do
+  let out ← IO.Process.output {
+    cmd := "curl"
+    args := #[
+      "-X", "POST", url,
+      "-H", "accept: application/json",
+      "-H", "Content-Type: application/json",
+      "-H", "x-api-key: " ++ apiKey,
+      "-H", "anthropic-version: 2023-06-01",
+      "-d", (toJson req).pretty UInt64.size]
+  }
+  dbg_trace f!"POST url: {url}"
+  dbg_trace f!"APIKey: {apiKey}"
+  dbg_trace f!"req: {(toJson req).pretty}"
+  --dbg_trace f!"out.exitCode: {out.exitCode}"
+  -- dbg_trace f!"output {out.stdout}"
+  if out.exitCode != 0 then
+     throw $ IO.userError s!"Request failed. If running locally, ensure that ollama is running, and that the ollama server is up at `{url}`. If the ollama server is up at a different url, set LLMLEAN_URL to the proper url. If using a cloud API, ensure that LLMLEAN_API_KEY is set."
+  let some json := Json.parse out.stdout |>.toOption
+    | throw $ IO.userError out.stdout
+  let some res := (fromJson? json : Except String β) |>.toOption
+    | throw $ IO.userError out.stdout
+  return res
 
-When writing your solution, keep in mind the significant changes and style guidelines introduced in Lean 4 (instead of Lean 3). Consider the following checklist:
-#### Simp Tactic
-- One should use simp [theorem_name] instead of simp theorem_name
 
-#### rw Tactic
-- One should use rw [theorem_name] instead of rw theorem_name
+-- def DeepSeekLEAN4prompt := "
+-- ---
 
-#### Lambda Expressions
-- Use `=>` instead of `,` for lambda expressions.
-- `λ` can be used as a shorthand for `fun`.
+-- When writing your solution, keep in mind the significant changes and style guidelines introduced in Lean 4 (instead of Lean 3). Consider the following checklist:
+-- #### Simp Tactic
+-- - One should use simp [theorem_name] instead of simp theorem_name
 
-#### Pattern Matching
-- Use `fun` followed by `match` for pattern matching.
+-- #### rw Tactic
+-- - One should use rw [theorem_name] instead of rw theorem_name
 
-#### Function Applications
-- Remember that `f(x)` is not allowed; use `f (x)` instead.
+-- #### Lambda Expressions
+-- - Use `=>` instead of `,` for lambda expressions.
+-- - `λ` can be used as a shorthand for `fun`.
 
-#### Dependent Function Types
-- Use `forall` or `∀` instead of `Π` for dependent function types.
+-- #### Pattern Matching
+-- - Use `fun` followed by `match` for pattern matching.
 
-#### Tactic Mode of Proof
-- The `begin ... end` keyword for tactic mode of proof is abandoned.
-- Use indentation to indicate the scope of tactics instead.
+-- #### Function Applications
+-- - Remember that `f(x)` is not allowed; use `f (x)` instead.
 
-#### Style Changes
-- Follow the naming conventions:
-  - Term constants/variables: `lowerCamelCase`
-  - Type constants: `UpperCamelCase`
-  - Type variables: Lower case Greek letters
-  - Functors: Lower case Latin letters
-"
+-- #### Dependent Function Types
+-- - Use `forall` or `∀` instead of `Π` for dependent function types.
+
+-- #### Tactic Mode of Proof
+-- - The `begin ... end` keyword for tactic mode of proof is abandoned.
+-- - Use indentation to indicate the scope of tactics instead.
+
+-- #### Style Changes
+-- - Follow the naming conventions:
+--   - Term constants/variables: `lowerCamelCase`
+--   - Type constants: `UpperCamelCase`
+--   - Type variables: Lower case Greek letters
+--   - Functors: Lower case Latin letters
+-- "
 
 def makePromptsFewShot (context : String) (state : String) (pre: String) : List String :=
-  let p1 := DeepSeekLEAN4prompt ++ "Given the Lean 4 tactic state, suggest a next tactic.
+  -- let p1 := DeepSeekLEAN4prompt ++ "/- You are proving a theorem in Lean 4.
+  let p1 := "Given the Lean 4 tactic state, suggest a next tactic.
 Here are some examples:
 
 Tactic state:
@@ -365,7 +391,9 @@ Next tactic:
   [p1, p2]
 
 def makePromptsInstruct (context : String) (state : String) (pre: String) : List String :=
-  let p1 := DeepSeekLEAN4prompt ++ "/- You are proving a theorem in Lean 4.
+  -- let p1 := DeepSeekLEAN4prompt ++ "/- You are proving a theorem in Lean 4.
+  let p1 := "/- You are proving a theorem in Lean 4.
+
 You are given the following information:
 - The file contents up to the current tactic, inside [CTX]...[/CTX]
 - The current proof state, inside [STATE]...[/STATE]
@@ -386,12 +414,14 @@ Put the next tactic inside [TAC]...[/TAC].
 def makePromptsDetailed (context : String) (state : String) (pre: String) : List String :=
   makePromptsInstruct context state pre
 
-def makeQedPromptsFewShot (context : String) (state : String) : List String :=
+def makeQedPromptsFewShot (context : String): List String :=
   let p1 := context
   [p1]
 
-def makeQedPromptsInstruct (context : String) (state : String) : List String :=
-  let p1 := DeepSeekLEAN4prompt ++ "/- You are proving a theorem in Lean 4.
+def makeQedPromptsInstruct (context : String): List String :=
+  -- let p1 := DeepSeekLEAN4prompt ++ "/- You are proving a theorem in Lean 4.
+  let p1 := "/- You are proving a theorem in Lean 4.
+
 You are given the following information:
 - The current file contents up to and including the theorem statement, inside [CTX]...[/CTX]
 
@@ -405,8 +435,10 @@ Put the proof inside [PROOF]...[/PROOF]
   [p1]
 
 def makeQedPromptsDetailed (context : String) (state : String) : List String :=
-  let p1 := DeepSeekLEAN4prompt ++  "/- You are proving a theorem in Lean 4.
-You are given the following information:
+  -- let p1 := DeepSeekLEAN4prompt ++  "/- You are proving a theorem in Lean 4.
+  let p1 :=  "/- You are proving a theorem in Lean 4.
+
+You are given the following information1:
 - The file contents up to the current tactic, inside [CTX]...[/CTX]
 - The current proof state, inside [STATE]...[/STATE]
 
@@ -444,9 +476,9 @@ def makePrompts (promptKind : PromptKind) (context : String) (state : String) (p
 
 def makeQedPrompts (promptKind : PromptKind) (context : String) (state : String) : List String :=
   match promptKind with
-  | PromptKind.FewShot => makeQedPromptsFewShot context state
+  | PromptKind.FewShot => makeQedPromptsFewShot context
   | PromptKind.Detailed => makeQedPromptsDetailed context state
-  | _ => makeQedPromptsInstruct context state
+  | _ => makeQedPromptsInstruct context
 
 
 def filterGeneration (s: String) : Bool :=
@@ -474,7 +506,7 @@ def parseTacticResponseClaude (res: ClaudeResponse) (pfx : String) : Array Strin
 
 def tacticGenerationOllama (pfx : String) (prompts : List String)
 (api : API) (options : GenerationOptions) : IO $ Array (String × Float) := do
-  let mut results : HashSet String := HashSet.empty
+  let mut results : Std.HashSet String := Std.HashSet.empty
   for prompt in prompts do
     for i in List.range options.numSamples do
       let temperature := if i == 1 then 0.0 else options.temperature
@@ -492,7 +524,7 @@ def tacticGenerationOllama (pfx : String) (prompts : List String)
 
 def tacticGenerationOpenAI (pfx : String) (prompts : List String)
 (api : API) (options : GenerationOptions) : IO $ Array (String × Float) := do
-  let mut results : HashSet String := HashSet.empty
+  let mut results : Std.HashSet String := Std.HashSet.empty
   for prompt in prompts do
     let req : OpenAITacticGenerationRequest := {
       model := api.model,
@@ -514,9 +546,9 @@ def tacticGenerationOpenAI (pfx : String) (prompts : List String)
 
 def tacticGenerationDeepSeek (pfx : String) (prompts : List String)
 (api : API) (options : GenerationOptions) : IO $ Array (String × Float) := do
-  let mut results : HashSet String := HashSet.empty
+  let mut results : Std.HashSet String := Std.HashSet.empty
   for prompt in prompts do
-    let req : OpenAITacticGenerationRequest := {
+    let req : DeepSeekTacticGenerationRequest := {
       model := api.model,
       messages := [
         {
@@ -536,9 +568,9 @@ def tacticGenerationDeepSeek (pfx : String) (prompts : List String)
 
 def tacticGenerationClaude (pfx : String) (prompts : List String)
 (api : API) (options : GenerationOptions) : IO $ Array (String × Float) := do
-  let mut results : HashSet String := HashSet.empty
+  let mut results : Std.HashSet String := Std.HashSet.empty
   for prompt in prompts do
-    let req : OpenAITacticGenerationRequest := {
+    let req : ClaudeTacticGenerationRequest := {
       model := api.model,
       messages := [
         {
@@ -546,15 +578,16 @@ def tacticGenerationClaude (pfx : String) (prompts : List String)
           content := prompt
         }
       ],
-      n := options.numSamples,
+      -- n := options.numSamples,
       temperature := options.temperature
     }
-    let res : ClaudeResponse ← post req api.baseUrl api.key
+    let res : ClaudeResponse ← postClaude req api.baseUrl api.key
     for result in (parseTacticResponseClaude res pfx) do
       results := results.insert result
 
   let finalResults := (results.toArray.filter filterGeneration).map fun x => (x, 1.0)
   return finalResults
+
 
 def splitProof (text : String) : String :=
   let text := ((text.splitOn "[PROOF]").tailD [text]).headD text
@@ -570,7 +603,7 @@ def parseResponseQedOpenAI (res: OpenAIResponse) : Array String :=
 
 def qedOllama (prompts : List String)
 (api : API) (options : GenerationOptionsQed) : IO $ Array (String × Float) := do
-  let mut results : HashSet String := HashSet.empty
+  let mut results : Std.HashSet String := Std.HashSet.empty
   for prompt in prompts do
     for i in List.range options.numSamples do
       let temperature := if i == 1 then 0.0 else options.temperature
@@ -588,7 +621,7 @@ def qedOllama (prompts : List String)
 
 def qedOpenAI (prompts : List String)
 (api : API) (options : GenerationOptionsQed) : IO $ Array (String × Float) := do
-  let mut results : HashSet String := HashSet.empty
+  let mut results : Std.HashSet String := Std.HashSet.empty
   for prompt in prompts do
     let req : OpenAIQedRequest := {
       model := api.model,

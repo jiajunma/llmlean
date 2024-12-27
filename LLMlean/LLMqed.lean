@@ -45,9 +45,9 @@ def checkSuggestion' (s: String) : Lean.Elab.Tactic.TacticM CheckResult := do
             pure CheckResult.Valid
         catch _ =>
           pure CheckResult.Invalid
-      | Except.error e =>
+      | Except.error _ =>
         pure CheckResult.Invalid
-    catch e =>
+    catch _ =>
       pure CheckResult.Invalid
 
 

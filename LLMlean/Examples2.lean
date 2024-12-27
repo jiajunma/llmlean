@@ -2,6 +2,36 @@ import Mathlib.Data.Set.Lattice
 import Mathlib.Data.Set.Function
 import Mathlib.Analysis.SpecialFunctions.Log.Basic
 import LLMlean
+import Lean
+
+def printEnv : IO Unit := do
+  -- Basic environment variable check
+  IO.println "=== LLMLean Environment Variables ==="
+  let api ← IO.getEnv "LLMLEAN_API"
+  let model ← IO.getEnv "LLMLEAN_MODEL"
+  let endpoint ← IO.getEnv "LLMLEAN_ENDPOINT"
+  let prompt ← IO.getEnv "LLMLEAN_PROMPT"
+  let samples ← IO.getEnv "LLMLEAN_NUMSAMPLES"
+
+  IO.println s!"LLMLEAN_API raw value: {api}"
+  IO.println s!"LLMLEAN_API with default: {api.getD "openai"}"
+  IO.println s!"API selection would be: {
+    match api.getD "openai" with
+    | "ollama" => "Ollama API"
+    | "together" => "Together API"
+    | "deepseek" => "DeepSeek API"
+    | "claude" => "Claude API"
+    | "anthropic" => "Claude API"
+    | _ => "OpenAI API"
+  }"
+
+  IO.println "\n=== Other Variables ==="
+  IO.println s!"LLMLEAN_MODEL: {model}"
+  IO.println s!"LLMLEAN_ENDPOINT: {endpoint}"
+  IO.println s!"LLMLEAN_PROMPT: {prompt}"
+  IO.println s!"LLMLEAN_NUMSAMPLES: {samples}"
+
+#eval printEnv
 
 section
 
@@ -14,14 +44,32 @@ open Function
 open Set
 
 example : f ⁻¹' (u ∩ v) = f ⁻¹' u ∩ f ⁻¹' v := by
-  llmqed
-  ext
-  rfl
+  ext x
+  constructor
+  · intro h
+    rw [mem_preimage] at h
+    rw [mem_inter_iff]
+    rw [mem_preimage]
+    rw [mem_preimage]
+    exact ⟨h.1, h.2⟩
+  · intro h
+    rw [mem_inter_iff] at h
+    rw [mem_preimage]
+    rw [mem_preimage] at h
+    rw [mem_preimage] at h
+    rw [mem_inter_iff]
+    exact ⟨h.1, h.2⟩
+  -- llmstep "rw "
+
+
 
 example : f '' (s ∪ t) = f '' s ∪ f '' t := by
+  -- llmqed
+  -- llmstep "rw "
   sorry
 
 example : s ⊆ f ⁻¹' (f '' s) := by
+  -- llmqed
   sorry
 
 example : f '' s ⊆ v ↔ s ⊆ f ⁻¹' v := by
