@@ -5,6 +5,9 @@ example {α : Type _} (r s t : Set α) : r ⊆ s → s ⊆ t → r ⊆ t := by
   intro h₁
   exact Set.Subset.trans h₁
 
+example (a b : ℚ ) : let p := (a-b)^2/2; let q := ((a+b+1)^2 -1 )/2 ; let pp := a*(a+1);let qq := b*(b+1); p+q = pp+qq := by ring
+
+example (a b : ℚ ) : let p := (a+b+1)^2/2; let q := ((a-b)^2 -1 )/2 ; let pp := a*(a+1);let qq := b*(b+1); p+q = pp+qq := by ring
 
 example (x y : ℕ) : x + y = y + x := by
   rw [Nat.add_comm]
